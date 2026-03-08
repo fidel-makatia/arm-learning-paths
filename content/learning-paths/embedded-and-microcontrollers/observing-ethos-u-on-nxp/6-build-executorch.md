@@ -47,7 +47,7 @@ Initialize the Arm-specific environment and accept the EULA:
 2. Source the environment variables:
 
    ```bash
-   source ./examples/arm/arm-scratch/setup_path.sh
+   source ./examples/arm/ethos-u-scratch/setup_path.sh
    ```
 
 ## Apply the Ethos-U65 patch
@@ -70,40 +70,19 @@ As of this writing, ExecuTorch does not officially support the Ethos-U65. You mu
    with open(filepath, 'r') as f:
        content = f.read()
 
-   # 1. Inject U65 Configuration Support
-   old_code = '        elif "ethos-u85" in target_lower:'
+   # Inject U65 default config block before the U85 elif
+   old_code = '        elif "ethos-u85" in self.target:'
    if old_code not in content:
        raise RuntimeError(f"Cannot find U85 config block in {filepath}. File may have changed.")
 
-   new_code = '''        elif "ethos-u65" in target_lower:
-               self.tosa_spec = TosaSpecification.create_from_string("TOSA-1.0+INT")
-               default_system_config = "Ethos_U65_High_End"
-               default_memory_mode = "Shared_Sram"
-           elif "ethos-u85" in target_lower:'''
+   new_code = '''        elif "ethos-u65" in self.target:
+               if system_config is None:
+                   system_config = "Ethos_U65_High_End"
+               if memory_mode is None:
+                   memory_mode = "Shared_Sram"
+           elif "ethos-u85" in self.target:'''
 
    content = content.replace(old_code, new_code)
-
-   # 2. Inject U65 Compile Spec Builder Logic
-   old_check = '''        if "u55" in target_lower:
-               return CompileSpecBuilder(
-                   TosaSpecification.create_from_string("TOSA-0.80+BI+u55")
-               )
-           if "u85" in self.target:'''
-
-   if old_check not in content:
-       raise RuntimeError(f"Cannot find U55/U85 builder block in {filepath}. File may have changed.")
-
-   new_check = '''        if "u55" in target_lower:
-               return CompileSpecBuilder(
-                   TosaSpecification.create_from_string("TOSA-0.80+BI+u55")
-               )
-           if "u65" in target_lower:
-               return CompileSpecBuilder(
-                   TosaSpecification.create_from_string("TOSA-1.0+INT")
-               )
-           if "u85" in self.target:'''
-
-   content = content.replace(old_check, new_check)
 
    with open(filepath, 'w') as f:
        f.write(content)
