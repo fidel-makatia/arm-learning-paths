@@ -157,39 +157,34 @@ Set three environment variables to locate your toolchain and SDK. Configure thes
 | `SdkRootDirPath` | Path to the folder **containing** the `mcuxsdk/` subdirectory | See platform instructions below |
 | `MCUX_VENV_PATH` | Path to the MCUXpresso Python venv executables | See platform instructions below |
 
-### Toolchain directory names by platform
+### Find the toolchain directory name
+
+The MCUXpresso Installer places the toolchain under `~/.mcuxpressotools/` (or `%USERPROFILE%\.mcuxpressotools\` on Windows). The directory name includes the version number, which changes when you install a newer toolchain.
+
+List the installed toolchain to find the exact name:
 
 {{< tabpane-normal >}}
 {{< tab header="Windows" >}}
-```text
-arm-gnu-toolchain-14.2.rel1-mingw-w64-x86_64-arm-none-eabi
+```powershell
+dir $env:USERPROFILE\.mcuxpressotools\arm-gnu-toolchain-*
 ```
 {{< /tab >}}
-{{< tab header="Linux" >}}
-```text
-arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi
-```
-{{< /tab >}}
-{{< tab header="macOS" >}}
-For Apple Silicon:
-```text
-arm-gnu-toolchain-14.2.rel1-darwin-arm64-arm-none-eabi
-```
-
-For Intel Mac:
-```text
-arm-gnu-toolchain-14.2.rel1-darwin-x86_64-arm-none-eabi
+{{< tab header="Linux/macOS" >}}
+```bash
+ls ~/.mcuxpressotools/arm-gnu-toolchain-*
 ```
 {{< /tab >}}
 {{< /tabpane-normal >}}
+
+Use the directory name shown in the output for the `ARMGCC_DIR` variable below. For example, the directory name looks like `arm-gnu-toolchain-14.2.rel1-darwin-arm64-arm-none-eabi` (the version number may differ).
 
 {{< tabpane-normal >}}
 {{< tab header="Windows" >}}
 Open PowerShell and run these commands to set persistent environment variables for the current user:
 
 ```powershell
-# Set ARMGCC_DIR (adjust the path if you installed the toolchain elsewhere)
-[Environment]::SetEnvironmentVariable("ARMGCC_DIR", "$env:USERPROFILE\.mcuxpressotools\arm-gnu-toolchain-14.2.rel1-mingw-w64-x86_64-arm-none-eabi", "User")
+# Set ARMGCC_DIR (replace <toolchain-dir> with the directory name found above)
+[Environment]::SetEnvironmentVariable("ARMGCC_DIR", "$env:USERPROFILE\.mcuxpressotools\<toolchain-dir>", "User")
 
 # Set SdkRootDirPath (the folder that contains the mcuxsdk/ subdirectory)
 [Environment]::SetEnvironmentVariable("SdkRootDirPath", "$env:USERPROFILE\mcuxsdk_root", "User")
@@ -204,7 +199,8 @@ Restart VS Code (or your terminal) after setting environment variables so they t
 Add these lines to `~/.bashrc` or `~/.profile`:
 
 ```bash
-export ARMGCC_DIR="$HOME/.mcuxpressotools/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi"
+# Replace <toolchain-dir> with the directory name found above
+export ARMGCC_DIR="$HOME/.mcuxpressotools/<toolchain-dir>"
 export SdkRootDirPath="$HOME/mcuxsdk_root"
 export MCUX_VENV_PATH="$HOME/.mcuxpressotools/.venv/bin"
 ```
@@ -219,10 +215,8 @@ source ~/.bashrc
 Add these lines to `~/.zshrc`:
 
 ```bash
-# For Apple Silicon:
-export ARMGCC_DIR="$HOME/.mcuxpressotools/arm-gnu-toolchain-14.2.rel1-darwin-arm64-arm-none-eabi"
-# For Intel Mac, use this instead:
-# export ARMGCC_DIR="$HOME/.mcuxpressotools/arm-gnu-toolchain-14.2.rel1-darwin-x86_64-arm-none-eabi"
+# Replace <toolchain-dir> with the directory name found above
+export ARMGCC_DIR="$HOME/.mcuxpressotools/<toolchain-dir>"
 
 export SdkRootDirPath="$HOME/mcuxsdk_root"
 export MCUX_VENV_PATH="$HOME/.mcuxpressotools/.venv/bin"

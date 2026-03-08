@@ -58,7 +58,7 @@ As of this writing, ExecuTorch does not officially support the Ethos-U65. You mu
 
    ```bash
    cat > /tmp/patch_u65.py << 'PATCH'
-   import importlib
+   import importlib.util
 
    # Dynamically locate the installed compile_spec.py (works regardless of
    # Python version, venv location, or username)
