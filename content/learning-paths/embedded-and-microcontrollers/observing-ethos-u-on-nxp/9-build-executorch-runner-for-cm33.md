@@ -237,20 +237,20 @@ The Cortex-M33 has 128KB of ITCM (code) and 108KB of DTCM (data). The firmware a
 
 ```cmake
 target_compile_definitions(${MCUX_SDK_PROJECT_NAME} PRIVATE
-  ET_ARM_BAREMETAL_METHOD_ALLOCATOR_POOL_SIZE=0x6000    # 24KB method allocator
-  ET_ARM_BAREMETAL_SCRATCH_TEMP_ALLOCATOR_POOL_SIZE=0x4000  # 16KB scratch allocator
+  ET_ARM_BAREMETAL_METHOD_ALLOCATOR_POOL_SIZE=0x6000      # 24KB method allocator
+  ET_ARM_BAREMETAL_SCRATCH_TEMP_ALLOCATOR_POOL_SIZE=0x200000  # 2MB scratch allocator
   ET_MODEL_PTE_ADDR=0xC0000000  # DDR address where U-Boot loads the .pte model
 )
 ```
 
 | Setting | Value | Description |
 |---------|-------|-------------|
-| Method allocator | 24KB (`0x6000`) | Activation tensors and method metadata |
-| Scratch allocator | 16KB (`0x4000`) | Temporary NPU operations |
+| Method allocator | 24KB (`0x6000`) | Method metadata and small model activations |
+| Scratch allocator | 2MB (`0x200000`) | NPU scratch buffer (MobileNet V2 needs ~1.5MB) |
 | Model address | `0xC0000000` | Start of the 4MB reserved DDR region |
 
 {{% notice Note %}}
-The NPU scratch buffer is placed at DDR address `0xC0100000` (1MB after the model start). The Ethos-U65 accesses memory via the AXI bus and cannot reach the CM33's tightly-coupled DTCM. Placing the scratch buffer in DTCM causes a bus fault during inference.
+The i.MX93 device tree reserves two DDR regions: `model@c0000000` (4MB for the `.pte` model) and `ethosu_region@A8000000` (128MB for NPU working memory). The NPU scratch buffer is placed at `0xA8000000` and planned buffers for large models at `0xA8200000`, both inside the 128MB ethosu_region. The Ethos-U65 accesses memory via the AXI bus and cannot reach the CM33's tightly-coupled DTCM. Placing buffers in DTCM causes a bus fault during inference.
 {{% /notice %}}
 
 ## Build the firmware

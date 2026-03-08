@@ -19,47 +19,75 @@ Before deploying, ensure the following are in place on your FRDM-IMX93 board:
 
    If `/dev/ethosu0` does not exist, the NPU is not powered and the firmware will hang at NPU initialization.
 
-2. **DDR memory is reserved for the CM33.** The device tree must reserve 4MB of DDR at `0xC0000000` for the model and NPU scratch buffer:
+2. **DDR memory is reserved for the CM33.** The NXP BSP for the FRDM-IMX93 reserves two DDR regions by default:
 
    ```dts
    reserved-memory {
-       ethosu_mem: ethosu@c0000000 {
-           reg = <0 0xc0000000 0 0x400000>;
+       model@c0000000 {
+           reg = <0 0xc0000000 0 0x400000>;   /* 4MB for .pte model */
+           no-map;
+       };
+       ethosu_region@A8000000 {
+           reg = <0 0xa8000000 0 0x8000000>;  /* 128MB for NPU working memory */
            no-map;
        };
    };
    ```
 
-   The NXP BSP for the FRDM-IMX93 includes this reservation by default.
+## Load the model to DDR
 
-## Load the model to DDR via U-Boot
+The executor_runner firmware reads the `.pte` model from DDR address `0xC0000000`.
 
-The executor_runner firmware reads the `.pte` model from DDR address `0xC0000000`. Because this memory region is marked `no-map` in the device tree, it cannot be written from Linux. You must load the model using U-Boot before Linux boots.
+### Option A — From Linux via `/dev/mem` (no reboot required)
 
-1. Insert the SD card containing the `.pte` files (copied in the previous step) into the FRDM-IMX93 board.
+Copy the `.pte` file to the board and write it directly to DDR:
 
-2. Power on the board and interrupt U-Boot by pressing a key when you see the autoboot countdown in the serial console.
+```bash
+scp mobilenetv2_u65.pte root@<board-ip>:/tmp/
+```
 
-3. Load the model into DDR:
+On the board, write the model to the reserved DDR address:
+
+```bash { command_line="root@frdm-imx93" output_lines="8" }
+python3 -c "
+import mmap, os
+pte = open('/tmp/mobilenetv2_u65.pte', 'rb').read()
+fd = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
+m = mmap.mmap(fd, len(pte), mmap.MAP_SHARED, mmap.PROT_WRITE, offset=0xC0000000)
+m.write(pte)
+m.close()
+os.close(fd)
+print(f'Wrote {len(pte)} bytes to 0xC0000000')
+"
+Wrote 3507872 bytes to 0xC0000000
+```
+
+### Option B — Via U-Boot (requires reboot)
+
+If you have the `.pte` files on the SD card's first partition, load the model in U-Boot before booting Linux:
+
+1. Power on the board and press a key when you see the autoboot countdown in the serial console.
+
+2. Load the model into DDR:
 
    ```text
-   u-boot=> fatload mmc 0:1 0xc0000000 model_u65.pte
+   u-boot=> fatload mmc 0:1 0xc0000000 mobilenetv2_u65.pte
    ```
 
    You should see output confirming the bytes loaded:
 
    ```text
-   3872 bytes read in 12 ms (315.4 KiB/s)
+   3507872 bytes read in 58 ms (57.7 MiB/s)
    ```
 
-4. Continue booting Linux:
+3. Continue booting Linux:
 
    ```text
    u-boot=> boot
    ```
 
 {{% notice Note %}}
-The model remains in DDR across Linux boot because the region is marked `no-map`. You only need to reload via U-Boot if the board is fully power-cycled. To load the larger MobileNet V2 model instead, use `fatload mmc 0:1 0xc0000000 mobilenetv2_u65.pte`.
+The model remains in DDR across Linux boot because the region is marked `no-map`. You only need to reload the model if the board is fully power-cycled.
 {{% /notice %}}
 
 ## Connect to the FRDM-IMX93 board
@@ -101,7 +129,7 @@ Verify the file was copied:
 
 ```bash { command_line="root@frdm-imx93" output_lines="2" }
 ls -lh /lib/firmware/executorch_runner_cm33.elf
--rw-r--r-- 1 root root 424K Mar  8 10:30 /lib/firmware/executorch_runner_cm33.elf
+-rw-r--r-- 1 root root 716K Mar  8 10:30 /lib/firmware/executorch_runner_cm33.elf
 ```
 
 ## Load and start the firmware on Cortex-M33
@@ -139,19 +167,16 @@ The message "remote processor imx-rproc is now up" confirms successful loading.
 
 ## View inference output
 
-The executor_runner writes all output to the remoteproc **trace buffer**, which is readable from Linux. Wait a few seconds for inference to complete, then read the trace:
+The executor_runner writes all output to the remoteproc **trace buffer**, which is readable from Linux. MobileNet V2 takes approximately 10 seconds to complete inference. Wait for it to finish, then read the trace:
 
 ```bash { command_line="root@frdm-imx93" }
-sleep 3
+sleep 15
 cat /sys/kernel/debug/remoteproc/remoteproc0/trace0
 ```
 
 You should see output similar to:
 
 ```output
-I: Initializing NPU: base_address=0x4a900000, fast_memory=0, secure=0, privileged=0
-I: Soft reset NPU
-I: New NPU driver registered (handle: 0x0x20009210, NPU: 0x0x4a900000)
 I: Optimizer config. product=1, cmd_stream_version=0, macs_per_cc=8, shram_size=48, custom_dma=0
 I: Optimizer config. arch version: 1.0.6
 I: Ethos-U config. product=1, cmd_stream_version=0, macs_per_cc=8, shram_size=48, custom_dma=0
@@ -159,9 +184,13 @@ I: Ethos-U. arch version=1.0.6
 I: Test Case 16: handle_optimizer_config: NPU config match
 I: Test Case 17: handle_optimizer_config: NPU arch match
 I: Test Case 14: cmd_end_reached 0x1
+I: Test Case 10: bus_status_error 0x0
 1 inferences finished
-Output[0]: dtype=6, numel=1, nbytes=4
-  [0]=1073741824 (float raw)
+Output[0]: dtype=6, numel=1000, nbytes=4000
+    [0]=0 (float raw)
+    [1]=1058744595 (float raw)
+    [2]=-1081274863 (float raw)
+    ... (1000 total values)
 Model run: 1
 Program complete, exiting.
 ```
@@ -174,21 +203,23 @@ The key indicators of a successful inference run:
 | `NPU arch match` | The compiled model's architecture version matches the hardware |
 | `cmd_end_reached 0x1` | The NPU executed the full command stream without errors |
 | `bus_status_error 0x0` | No AXI bus errors during NPU memory access |
-| `1073741824 (float raw)` | Output value `0x40000000` = `2.0` in IEEE 754 float (correct for the add model: 1.0 + 1.0 = 2.0) |
+| `numel=1000, nbytes=4000` | MobileNet V2 output: 1000 float32 values, one score per ImageNet class |
+
+The model was compiled with random input data, so the output scores do not correspond to a real image classification. To get meaningful predictions, you would feed a real 224x224 RGB image as input.
 
 {{% notice Note %}}
-If the trace buffer shows `Program identifier '' != expected 'ET12'`, the `.pte` model was not loaded into DDR. Power-cycle the board and load the model via U-Boot as described above.
+If the trace buffer shows `Program identifier '' != expected 'ET12'`, the `.pte` model was not loaded into DDR. Reload the model using one of the methods described above.
 {{% /notice %}}
 
-## Test inference
+## Re-run inference
 
-The executor_runner automatically runs inference when the firmware starts. To re-run inference, reload the firmware:
+The executor_runner runs inference once when the firmware starts. To re-run, reload the firmware:
 
 ```bash { command_line="root@frdm-imx93" }
 echo stop > /sys/class/remoteproc/remoteproc0/state
 sleep 2
 echo start > /sys/class/remoteproc/remoteproc0/state
-sleep 3
+sleep 15
 cat /sys/kernel/debug/remoteproc/remoteproc0/trace0
 ```
 
@@ -212,7 +243,7 @@ cat /sys/class/remoteproc/remoteproc0/firmware
 executorch_runner_cm33.elf
 ```
 
-3. **Trace buffer shows inference output** with `cmd_end_reached 0x1` and model results.
+3. **Trace buffer shows inference output** with `cmd_end_reached 0x1` and 1000 output values.
 
 ## Update the firmware
 
@@ -231,7 +262,7 @@ scp debug/executorch_runner_cm33.elf root@<board-ip>:/lib/firmware/
 echo stop > /sys/class/remoteproc/remoteproc0/state
 sleep 2
 echo start > /sys/class/remoteproc/remoteproc0/state
-sleep 3
+sleep 15
 cat /sys/kernel/debug/remoteproc/remoteproc0/trace0
 ```
 
@@ -248,10 +279,25 @@ chmod 644 /lib/firmware/executorch_runner_cm33.elf
 
 **`Program identifier '' != expected 'ET12'`:**
 
-The `.pte` model is not present at DDR address `0xC0000000`. Power-cycle the board and load the model via U-Boot:
+The `.pte` model is not present at DDR address `0xC0000000`. Reload the model using either method:
 
+From Linux:
+```bash { command_line="root@frdm-imx93" }
+python3 -c "
+import mmap, os
+pte = open('/tmp/mobilenetv2_u65.pte', 'rb').read()
+fd = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
+m = mmap.mmap(fd, len(pte), mmap.MAP_SHARED, mmap.PROT_WRITE, offset=0xC0000000)
+m.write(pte)
+m.close()
+os.close(fd)
+print(f'Wrote {len(pte)} bytes to 0xC0000000')
+"
+```
+
+Or via U-Boot (requires reboot):
 ```text
-u-boot=> fatload mmc 0:1 0xc0000000 model_u65.pte
+u-boot=> fatload mmc 0:1 0xc0000000 mobilenetv2_u65.pte
 u-boot=> boot
 ```
 
@@ -265,6 +311,10 @@ dmesg | grep ethosu
 ```
 
 If `/dev/ethosu0` does not exist, the NPU is not powered and the firmware cannot initialize it.
+
+**Memory allocation failed for planned buffer:**
+
+This occurs when a large model's activation tensors exceed the DTCM method allocator. The firmware automatically uses DDR for models that need more than 12KB of planned buffers. If you still see this error, verify the `ethosu_region@A8000000` (128MB) is reserved in the device tree.
 
 **BUS FAULT or vtable corruption:**
 
@@ -284,4 +334,4 @@ Check kernel logs for errors:
 dmesg | grep -i error | tail
 ```
 
-This might indicate memory configuration issues. Verify that the DDR region `0xC0000000-0xC03FFFFF` is reserved in the device tree.
+This might indicate memory configuration issues. Verify that both DDR regions (`0xC0000000-0xC03FFFFF` and `0xA8000000-0xAFFFFFFF`) are reserved in the device tree.
