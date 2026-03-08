@@ -39,14 +39,16 @@ Prior to logging in to the NXP board, you need to configure `picocom`. This allo
      # output lines
      ...
      /dev/tty.debug-console
-     /dev/tty.usbmodem56D70442811
-     /dev/tty.usbmodem56D70442813
+     /dev/tty.usbmodem<SERIAL_ID_1>
+     /dev/tty.usbmodem<SERIAL_ID_2>
      ...
      ```
 
-   - Connect to the NXP board:
+     The exact device names vary per board. Look for entries containing `usbmodem`.
+
+   - Connect to the NXP board (use the first `usbmodem` device):
      ```bash { output_lines = "2-5" }
-     sudo picocom -b 115200 /dev/tty.usbmodem56D70442811
+     sudo picocom -b 115200 /dev/tty.usbmodem<SERIAL_ID_1>
      # output lines
      picocom v3.1
      ...

@@ -12,7 +12,7 @@ who_is_this_for: This is an introductory topic for developers and data scientist
 learning_objectives:
     - Identify suitable physical Arm-based devices for TinyML applications.
     - Optionally, configure physical embedded devices.
-    - Deploy a TinyML ExecuTorch model to NXP's FRDM i.MX 93 applicaiton processor (board).
+    - Deploy a TinyML ExecuTorch model to NXP's FRDM i.MX 93 application processor (board).
 
 prerequisites:
     - Purchase of a NXP [FRDM i.MX 93](https://www.nxp.com/design/design-center/development-boards-and-designs/frdm-i-mx-93-development-board:FRDM-IMX93) board.

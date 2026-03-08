@@ -59,47 +59,43 @@ git clone https://github.com/fidel-makatia/Executorch_runner_cm33.git
 cd Executorch_runner_cm33
 ```
 
-The repository contains the complete runtime source code and build configuration for Cortex-M33.
+The repository contains the complete runtime source code, pre-built ExecuTorch libraries, and build configuration for Cortex-M33 with Ethos-U65 NPU support.
 
-## Copy ExecuTorch libraries
+## Apply required SDK patches
 
-Copy the prebuilt ExecuTorch libraries with Ethos-U NPU support from your Docker container.
-
-Find your ExecuTorch build container:
-
-```bash { output_lines = "2-3" }
-docker ps -a
-CONTAINER ID   IMAGE          COMMAND       CREATED        STATUS
-abc123def456   executorch     "/bin/bash"   2 hours ago    Exited
-```
-
-Copy the libraries:
+The executor_runner requires two patches to your MCUXpresso SDK. A script is included in the repository to apply them automatically:
 
 ```bash
-docker cp abc123def456:/home/ubuntu/executorch/cmake-out/lib/. ./executorch/lib/
-docker cp abc123def456:/home/ubuntu/executorch/. ./executorch/include/executorch/
+./patches/apply_patches.sh
 ```
 
-Replace `abc123def456` with your actual container ID.
+The script modifies two SDK files (with backups created automatically):
+
+| Patch | What it does | Why it is required |
+|-------|-------------|-------------------|
+| **GOT initialization** | Adds `*(.got)` and `*(.got.plt)` inside the `.data` section of the linker script | Without this, the Global Offset Table is never initialized by startup code. This causes vtable corruption and a BUS FAULT during `load_method`. |
+| **NPU log redirect** | Redirects Ethos-U driver `LOG_ERR`/`LOG_INFO` macros to the remoteproc trace buffer | Without this, NPU driver errors are only sent to UART and are invisible when reading `trace0` from Linux. |
 
 {{% notice Note %}}
-In some Docker containers, the `cmake-out` folder might not exist. If you don't see the libraries, run the following command to build them:
-
-```bash
-./examples/arm/run.sh --build-only
-```
-
-The libraries are generated in `arm_test/cmake-out`.
+Run the patch script once after installing the SDK. The script detects if patches are already applied and skips them. If you reinstall or update the SDK, run the script again.
 {{% /notice %}}
 
-Verify the libraries were copied:
+## Pre-built ExecuTorch libraries
 
-```bash { output_lines = "2-5" }
-ls -lh executorch/lib/
--rw-r--r-- 1 user user 2.1M libexecutorch.a
--rw-r--r-- 1 user user 856K libexecutorch_core.a
--rw-r--r-- 1 user user 1.3M libexecutorch_delegate_ethos_u.a
-```
+The repository includes pre-built static libraries in `executorch/lib/`, cross-compiled for Cortex-M33 with size optimization (`-Os`, MinSizeRel):
+
+| Library | Size | Purpose |
+|---------|------|---------|
+| `libexecutorch.a` | 52KB | ExecuTorch runtime |
+| `libexecutorch_core.a` | 217KB | Core runtime (gc-sections removes unused code) |
+| `libexecutorch_delegate_ethos_u.a` | 19KB | Ethos-U NPU delegate backend |
+| `libquantized_ops_lib_selective.a` | 7KB | Registers only `quantize_per_tensor.out` and `dequantize_per_tensor.out` |
+| `libquantized_kernels.a` | 242KB | Kernel implementations (gc-sections removes unused code) |
+| `libkernels_util_all_deps.a` | 308KB | Kernel utilities (gc-sections removes unused code) |
+
+{{% notice Note %}}
+The selective quantized ops library (`libquantized_ops_lib_selective.a`) registers only the two CPU operators needed at the NPU delegation boundary. The full `libquantized_ops_lib.a` registers all quantized operators and pulls in ~92KB of kernel code, which overflows the 128KB ITCM. If you rebuild the libraries from source, you must create this selective library manually.
+{{% /notice %}}
 
 ## Configure the project for FRDM-MIMX93
 
@@ -158,7 +154,7 @@ Set three environment variables to locate your toolchain and SDK. Configure thes
 | Variable | Description | Example Value |
 |----------|-------------|---------------|
 | `ARMGCC_DIR` | Path to the Arm GCC toolchain root | See platform instructions below |
-| `SdkRootDirPath` | Path to the MCUXpresso SDK root (the mcimx93_evk folder) | See platform instructions below |
+| `SdkRootDirPath` | Path to the folder **containing** the `mcuxsdk/` subdirectory | See platform instructions below |
 | `MCUX_VENV_PATH` | Path to the MCUXpresso Python venv executables | See platform instructions below |
 
 ### Toolchain directory names by platform
@@ -195,8 +191,8 @@ Open PowerShell and run these commands to set persistent environment variables f
 # Set ARMGCC_DIR (adjust the path if you installed the toolchain elsewhere)
 [Environment]::SetEnvironmentVariable("ARMGCC_DIR", "$env:USERPROFILE\.mcuxpressotools\arm-gnu-toolchain-14.2.rel1-mingw-w64-x86_64-arm-none-eabi", "User")
 
-# Set SdkRootDirPath (adjust the path to your SDK location)
-[Environment]::SetEnvironmentVariable("SdkRootDirPath", "$env:USERPROFILE\mcimx93_evk", "User")
+# Set SdkRootDirPath (the folder that contains the mcuxsdk/ subdirectory)
+[Environment]::SetEnvironmentVariable("SdkRootDirPath", "$env:USERPROFILE\mcuxsdk_root", "User")
 
 # Set MCUX_VENV_PATH (adjust if your venv has a different name, e.g. .venv_3_11)
 [Environment]::SetEnvironmentVariable("MCUX_VENV_PATH", "$env:USERPROFILE\.mcuxpressotools\.venv\Scripts", "User")
@@ -209,7 +205,7 @@ Add these lines to `~/.bashrc` or `~/.profile`:
 
 ```bash
 export ARMGCC_DIR="$HOME/.mcuxpressotools/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi"
-export SdkRootDirPath="$HOME/mcimx93_evk"
+export SdkRootDirPath="$HOME/mcuxsdk_root"
 export MCUX_VENV_PATH="$HOME/.mcuxpressotools/.venv/bin"
 ```
 
@@ -228,7 +224,7 @@ export ARMGCC_DIR="$HOME/.mcuxpressotools/arm-gnu-toolchain-14.2.rel1-darwin-arm
 # For Intel Mac, use this instead:
 # export ARMGCC_DIR="$HOME/.mcuxpressotools/arm-gnu-toolchain-14.2.rel1-darwin-x86_64-arm-none-eabi"
 
-export SdkRootDirPath="$HOME/mcimx93_evk"
+export SdkRootDirPath="$HOME/mcuxsdk_root"
 export MCUX_VENV_PATH="$HOME/.mcuxpressotools/.venv/bin"
 ```
 
@@ -241,24 +237,26 @@ source ~/.zshrc
 {{< /tabpane-normal >}}
 
 
-## Configure memory settings
+## Understand the memory configuration
 
-The Cortex-M33 has 108KB of RAM. The default memory configuration allocates:
-- 16KB for the method allocator (activation tensors)
-- 8KB for the scratch allocator (temporary operations)
-
-These settings are in `CMakeLists.txt`:
+The Cortex-M33 has 128KB of ITCM (code) and 108KB of DTCM (data). The firmware also uses a 4MB reserved DDR region for the model and NPU scratch buffer. The memory configuration is defined in `CMakeLists.txt`:
 
 ```cmake
 target_compile_definitions(${MCUX_SDK_PROJECT_NAME} PRIVATE
-  ET_ARM_BAREMETAL_METHOD_ALLOCATOR_POOL_SIZE=0x4000   # 16KB
-  ET_ARM_BAREMETAL_SCRATCH_TEMP_ALLOCATOR_POOL_SIZE=0x2000  # 8KB
-  ET_MODEL_PTE_ADDR=0x80100000  # DDR address for model
+  ET_ARM_BAREMETAL_METHOD_ALLOCATOR_POOL_SIZE=0x6000    # 24KB method allocator
+  ET_ARM_BAREMETAL_SCRATCH_TEMP_ALLOCATOR_POOL_SIZE=0x4000  # 16KB scratch allocator
+  ET_MODEL_PTE_ADDR=0xC0000000  # DDR address where U-Boot loads the .pte model
 )
 ```
 
+| Setting | Value | Description |
+|---------|-------|-------------|
+| Method allocator | 24KB (`0x6000`) | Activation tensors and method metadata |
+| Scratch allocator | 16KB (`0x4000`) | Temporary NPU operations |
+| Model address | `0xC0000000` | Start of the 4MB reserved DDR region |
+
 {{% notice Note %}}
-If you see "region RAM overflowed" errors during build, reduce these pool sizes. For example, change to 0x2000 (8KB) and 0x1000 (4KB) respectively.
+The NPU scratch buffer is placed at DDR address `0xC0100000` (1MB after the model start). The Ethos-U65 accesses memory via the AXI bus and cannot reach the CM33's tightly-coupled DTCM. Placing the scratch buffer in DTCM causes a bus fault during inference.
 {{% /notice %}}
 
 ## Build the firmware
@@ -293,50 +291,41 @@ The build output shows the progress:
 [build] Build finished with exit code 0
 ```
 
-Verify that the build succeeded:
+Verify the memory usage to ensure the firmware fits in the Cortex-M33:
 
-```bash { output_lines = "2" }
-ls -lh build/executorch_runner_cm33.elf
--rwxr-xr-x 1 user user 601K executorch_runner_cm33.elf
+```output
+Memory region         Used Size  Region Size  %age Used
+    m_interrupts:        1140 B       1144 B     99.65%
+          m_text:      103476 B     129928 B     79.64%
+          m_data:       61984 B       108 KB     56.05%
 ```
 
-Check the memory usage to ensure it fits in the Cortex-M33:
-
-```bash { output_lines = "2-3" }
-arm-none-eabi-size build/executorch_runner_cm33.elf
-   text	   data	    bss	    dec	    hex	filename
-  52408	    724	  50472	 103604	  19494	executorch_runner_cm33.elf
-```
-
-The total RAM usage (data + bss) is approximately 51KB, well within the 108KB limit.
+The text section uses approximately 80% of the 128KB ITCM, and data uses approximately 56% of the 108KB DTCM.
 
 ## Troubleshooting
 
-**Arm toolchain not found:**
+**SDK patches not applied:**
 
-Add the toolchain to your PATH:
+If you see a BUS FAULT during `load_method` or vtable corruption errors, the GOT linker script patch has not been applied. Run:
 
 ```bash
-export PATH=/opt/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi/bin:$PATH
+./patches/apply_patches.sh
 ```
 
 **Cannot find ExecuTorch libraries:**
 
-Verify the libraries were copied correctly:
+Verify the pre-built libraries exist:
 
 ```bash
 ls executorch/lib/libexecutorch*.a
 ```
 
-If missing, re-copy from the Docker container.
+The repository includes these libraries. If they are missing, re-clone the repository.
 
-**Region RAM overflowed:**
+**Region m_text overflowed:**
 
-Edit `CMakeLists.txt` and reduce the memory pool sizes:
+The 128KB ITCM is nearly full. Ensure you are linking `libquantized_ops_lib_selective.a` (not the full `libquantized_ops_lib.a`) in `CMakeLists.txt`. The selective library registers only the two operators needed for NPU delegation.
 
-```cmake
-ET_ARM_BAREMETAL_METHOD_ALLOCATOR_POOL_SIZE=0x2000  # 8KB
-ET_ARM_BAREMETAL_SCRATCH_TEMP_ALLOCATOR_POOL_SIZE=0x1000  # 4KB
-```
+**`resolve_operator` error for `quantized_decomposed::*`:**
 
-Then rebuild with `F7`.
+This means the quantized operator kernels are not linked. Verify that `CMakeLists.txt` links `libquantized_ops_lib_selective.a` with `--whole-archive` and that `libquantized_kernels.a` and `libkernels_util_all_deps.a` are also linked.

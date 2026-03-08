@@ -58,16 +58,23 @@ As of this writing, ExecuTorch does not officially support the Ethos-U65. You mu
 
    ```bash
    cat > /tmp/patch_u65.py << 'PATCH'
-   import os
+   import importlib
 
-   # Locate the file within the virtual environment
-   filepath = "/root/executorch/.venv/lib/python3.12/site-packages/executorch/backends/arm/ethosu/compile_spec.py"
+   # Dynamically locate the installed compile_spec.py (works regardless of
+   # Python version, venv location, or username)
+   spec = importlib.util.find_spec("executorch.backends.arm.ethosu.compile_spec")
+   if spec is None or spec.origin is None:
+       raise RuntimeError("Cannot find compile_spec.py. Is executorch installed?")
+   filepath = spec.origin
 
    with open(filepath, 'r') as f:
        content = f.read()
 
    # 1. Inject U65 Configuration Support
    old_code = '        elif "ethos-u85" in target_lower:'
+   if old_code not in content:
+       raise RuntimeError(f"Cannot find U85 config block in {filepath}. File may have changed.")
+
    new_code = '''        elif "ethos-u65" in target_lower:
                self.tosa_spec = TosaSpecification.create_from_string("TOSA-1.0+INT")
                default_system_config = "Ethos_U65_High_End"
@@ -82,6 +89,9 @@ As of this writing, ExecuTorch does not officially support the Ethos-U65. You mu
                    TosaSpecification.create_from_string("TOSA-0.80+BI+u55")
                )
            if "u85" in self.target:'''
+
+   if old_check not in content:
+       raise RuntimeError(f"Cannot find U55/U85 builder block in {filepath}. File may have changed.")
 
    new_check = '''        if "u55" in target_lower:
                return CompileSpecBuilder(
