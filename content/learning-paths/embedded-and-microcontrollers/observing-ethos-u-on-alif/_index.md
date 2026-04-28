@@ -3,6 +3,10 @@ title: Observing Ethos-U85 NPU on Alif E8 with MNIST Inference
 
 minutes_to_complete: 90
 
+draft: true
+cascade:
+    draft: true
+
 who_is_this_for: This is an introductory topic for embedded developers and ML engineers who want to run TinyML inference on physical hardware with Arm Ethos-U85 NPU acceleration.
 
 learning_objectives:
